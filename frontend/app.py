@@ -4,7 +4,7 @@ import json
 
 API_BASE_URL = "http://localhost:8000"
 
-st.set_page_config(page_title="Non-Profit Quiz", page_icon="🤖")
+st.set_page_config(page_title="Non Profit Agent", page_icon="🤖")
 
 st.markdown("""
 <style>
@@ -59,7 +59,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🤖 Non-Profit Quiz")
+st.title("🤖 Non Profit Agent")
 st.markdown("Welcome! I am here to help you learn how to handle donor emails and scenarios.")
 
 # Initialize chat history
@@ -67,6 +67,10 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "active_quiz" not in st.session_state:
     st.session_state.active_quiz = None
+if "triage_result" not in st.session_state:
+    st.session_state.triage_result = None
+if "triaged_email" not in st.session_state:
+    st.session_state.triaged_email = ""
 
 def handle_evaluation(user_text):
     st.chat_message("user").markdown(user_text)
@@ -95,25 +99,53 @@ def handle_evaluation(user_text):
 
 # Main UI - Donor Email Input (Removed Sidebar to make it cleaner!)
 if not st.session_state.active_quiz:
-    with st.expander("📨 Generate Training Quiz from Donor Email", expanded=len(st.session_state.messages) == 0):
-        donor_email = st.text_area("Paste a raw donor email here to generate a training quiz:", height=150)
-        if st.button("Generate Quiz", use_container_width=True):
-            if donor_email.strip():
+    with st.expander("📨 Triage Email & Generate Training Quiz", expanded=len(st.session_state.messages) == 0):
+        donor_email = st.text_area("Paste a raw donor email here to analyze:", height=150, value=st.session_state.triaged_email)
+        
+        if st.session_state.triage_result is None:
+            if st.button("Analyze Email (Triage)", use_container_width=True):
+                if donor_email.strip():
+                    with st.spinner("Analyzing urgency via Triage Agent..."):
+                        try:
+                            response = requests.post(f"{API_BASE_URL}/triage_email", json={"email_text": donor_email})
+                            response.raise_for_status()
+                            triage_data = json.loads(response.json().get("content", "{}"))
+                            st.session_state.triage_result = triage_data
+                            st.session_state.triaged_email = donor_email
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Triage Error: {e}")
+                else:
+                    st.warning("Please paste an email first.")
+        else:
+            # Display Triage Result
+            urgency = st.session_state.triage_result.get("urgency", "Low")
+            sla = st.session_state.triage_result.get("sla_days", 5)
+            reason = st.session_state.triage_result.get("reason", "")
+            
+            if urgency == "High":
+                st.error(f"🔴 **High Urgency** - SLA: {sla} Day(s)\n\n*Reason: {reason}*")
+            elif urgency == "Medium":
+                st.warning(f"🟡 **Medium Urgency** - SLA: {sla} Day(s)\n\n*Reason: {reason}*")
+            else:
+                st.info(f"🟢 **Low Urgency** - SLA: {sla} Day(s)\n\n*Reason: {reason}*")
+                
+            if st.button("Generate Training Quiz", use_container_width=True):
                 with st.spinner("Generating Quiz via Backend API..."):
                     try:
-                        response = requests.post(f"{API_BASE_URL}/generate_quiz", json={"email_text": donor_email})
+                        response = requests.post(f"{API_BASE_URL}/generate_quiz", json={"email_text": st.session_state.triaged_email})
                         response.raise_for_status()
                         quiz_content_str = response.json().get("content", "[]")
                         try:
                             st.session_state.active_quiz = json.loads(quiz_content_str)
+                            st.session_state.triage_result = None # Reset for next time
+                            st.session_state.triaged_email = ""
                             st.session_state.messages.append({"role": "assistant", "content": "**I generated a quiz! Please answer the questions below.**"})
                         except Exception:
                             st.error("Failed to parse quiz from backend.")
                         st.rerun()
                     except requests.exceptions.RequestException as e:
                         st.error(f"Make sure backend is running: {e}")
-            else:
-                st.warning("Please paste an email first.")
 
 # Display chat messages from history on app rerun
 for message in st.session_state.messages:

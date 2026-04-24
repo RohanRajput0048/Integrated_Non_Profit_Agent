@@ -2,8 +2,8 @@ from fastapi import FastAPI, HTTPException
 from dotenv import load_dotenv
 import os
 
-from backend.models import QuizGenerationRequest, EvaluationRequest
-from backend.llm_service import generate_quiz_content, evaluate_response
+from backend.models import QuizGenerationRequest, EvaluationRequest, TriageRequest
+from backend.llm_service import generate_quiz_content, evaluate_response, analyze_urgency
 
 load_dotenv()
 
@@ -14,6 +14,14 @@ async def generate_quiz(request: QuizGenerationRequest):
     try:
         quiz_response = generate_quiz_content(request.email_text)
         return {"content": quiz_response}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/triage_email")
+async def triage_email(request: TriageRequest):
+    try:
+        triage_response = analyze_urgency(request.email_text)
+        return {"content": triage_response}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

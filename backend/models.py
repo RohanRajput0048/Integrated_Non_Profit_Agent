@@ -4,6 +4,9 @@ from typing import List, Dict
 class QuizGenerationRequest(BaseModel):
     email_text: str
 
+class TriageRequest(BaseModel):
+    email_text: str
+
 class ChatMessage(BaseModel):
     role: str
     content: str

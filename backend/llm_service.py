@@ -1,4 +1,5 @@
 import os
+import json
 from google import genai
 from google.genai import types
 from backend.database import get_relevant_context
@@ -8,6 +9,33 @@ def setup_client():
     client = genai.Client(api_key=api_key) if api_key else genai.Client()
     return client
 
+def analyze_urgency(email_text: str) -> str:
+    if not os.getenv("GEMINI_API_KEY"):
+         return json.dumps({"urgency": "Error", "sla_days": 0, "reason": "Please set your GEMINI_API_KEY in the `.env` file first!"})
+    try:
+        client = setup_client()
+        prompt = (
+            "You are a Triage Agent for a Non-Profit organization. "
+            "Analyze the following donor email and classify its urgency as High, Medium, or Low. "
+            "Assign a Service Level Agreement (SLA) response time: High = 1 day, Medium = 3 days, Low = 5 days. "
+            "You MUST output valid JSON format ONLY. The JSON must be an object with the following schema:\n"
+            "{\n"
+            "  \"urgency\": \"<High|Medium|Low>\",\n"
+            "  \"sla_days\": <1|3|5>,\n"
+            "  \"reason\": \"<A detailed 3-5 sentence explanation of why this urgency was chosen, followed by a specific Suggested Action Plan for the trainee on how they should respond.>\"\n"
+            "}\n"
+            "Do NOT include markdown like ```json.\n\n"
+            f"Donor Email:\n{email_text}"
+        )
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        return response.text
+    except Exception as e:
+        return json.dumps({"urgency": "Error", "sla_days": 0, "reason": f"An error occurred: {str(e)}"})
+
 def generate_quiz_content(email_text: str) -> str:
     if not os.getenv("GEMINI_API_KEY"):
          return "Please set your GEMINI_API_KEY in the `.env` file first!"
@@ -15,7 +43,8 @@ def generate_quiz_content(email_text: str) -> str:
         client = setup_client()
         prompt = (
             "You are an expert training scenario generator for a non-profit organization.\n"
-            "Generate exactly 5 Multiple Choice Questions (MCQs) based on the following donor email. "
+            "Generate EXACTLY 5 Multiple Choice Questions (MCQs) based on the following donor email. "
+            "You must strictly output 5 questions, no more, no less. Even if the email is short, invent plausible related non-profit scenarios.\n"
             "Each question should test the trainee's understanding of donor intent and non-profit domain knowledge.\n"
             "You MUST output valid JSON format ONLY. The JSON must be an array of objects, where each object has "
             "a 'question' property (string) and an 'options' property (an array of exactly 4 strings: A, B, C, D). "
@@ -44,7 +73,7 @@ def evaluate_response(user_input: str, chat_history: list) -> str:
             "Your job is to assess the user's proposed response to a hypothetical donor email, or their answers to a generated quiz. "
             "Use the provided context (internal rules) to determine if their response is correct, helpful, and safe. "
             "If they are answering a quiz, format your output EXACTLY like a scorecard:\n"
-            "1. Give an overall Score (e.g., 4/5) at the very top using Markdown Header formatting (###).\n"
+            "1. Give an overall Score (e.g., X/5) at the very top using Markdown Header formatting (###). The denominator MUST be the total number of questions asked.\n"
             "2. Go through EACH question individually.\n"
             "3. For every question, you MUST print this exact layout:\n"
             "   - **Status:** `:green[Correct]` or `:red[Incorrect]`\n"
